@@ -23,21 +23,34 @@ func main() {
 	}
 
 	flist := flist.GetList(".")
-	//insertQuery := "INSERT INTO corruption VALUES((SELECT MAX(id)+1 FROM corruption)"
-	insertQuery := "INSERT INTO corruption VALUES"
-	valuesQuery := "(%d"
-	i := 2
-	id := 1
-	bulkSize := 100
 
+	id := 1
+	row, err := db.Query("SELECT MAX(id)+1 FROM corruption")
+	defer row.Close()
+	if err != nil {
+		fmt.Println("Query max(id) error", err)
+	} else {
+		row.Next()
+		err = row.Scan(&id)
+		if err != nil {
+			fmt.Println("Scan max(id) error", err)
+		}
+	}
+
+	insertQuery := "INSERT INTO corruption VALUES($1"
+	i := 2
 	for i < 22 {
-		//valuesQuery += fmt.Sprintf(", $%d", i)
-		valuesQuery += ", '%s'"
+		insertQuery += fmt.Sprintf(", $%d", i)
 		i++
 	}
-	valuesQuery += ")"
+	insertQuery += ")"
 
-	values := ""
+	stmt, err := db.Prepare(insertQuery)
+	if err != nil {
+		fmt.Println("Prepare query error", err, "\n", insertQuery)
+		return
+	}
+
 	for _, file := range flist {
 		fileOpen, err := os.Open(file)
 		if err != nil {
@@ -57,16 +70,8 @@ func main() {
 				break
 			}
 
-			//fmt.Println(line[1])
-
-			// stmt, err := db.Prepare(insertQuery)
-			// if err != nil {
-			// 	fmt.Println("Prepare query error", err)
-			// 	break
-			// }
 			id++
-			//_, err = stmt.Exec(
-			values += fmt.Sprintf(valuesQuery,
+			_, err = stmt.Exec(
 				id,
 				line[0],
 				line[1],
@@ -89,23 +94,9 @@ func main() {
 				line[16],
 				line[17])
 
-			if id % bulkSize == 0 {
-				_, err = db.Exec(insertQuery + values)
-				if err != nil {
-					fmt.Println("Insert query error", err)
-				}
-
-				fmt.Println("Ins 100 \n")
-
-				//fmt.Println(insertQuery + values)
-				values = ""
-			} else {
-				values += ","
+			if err != nil {
+				fmt.Println("Execute query error", err)
 			}
-
-			// if err != nil {
-			// 	fmt.Println("Execute query error", err)
-			// }
 		}
 	}
 
