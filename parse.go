@@ -33,7 +33,7 @@ func main() {
 		row.Next()
 		err = row.Scan(&id)
 		if err != nil {
-			fmt.Println("Scan max(id) error", err)
+			fmt.Println("Scan max(id) error", err) // id = 1
 		}
 	}
 
@@ -50,6 +50,7 @@ func main() {
 		fmt.Println("Prepare query error", err, "\n", insertQuery)
 		return
 	}
+	defer stmt.Close()
 
 	for _, file := range flist {
 		fileOpen, err := os.Open(file)
