@@ -38,7 +38,8 @@ type Corruption struct {
 }
 
 const batchSize int64 = 100
-const comma rune = ','
+// file headers
+// id,first_name,full_name,email,phone_number,address_city,address_street,address_house,address_entrance,address_floor,address_office,address_comment,location_latitude,location_longitude,amount_charged,user_id,user_agent,created_at,address_doorcode
 
 func main() {
 	_t := time.Now() ////
@@ -134,7 +135,6 @@ created_at) VALUES(
 		defer fileOpen.Close()
 
 		reader := csv.NewReader(fileOpen)
-		//reader.Comma = comma
 
 		// first line - headers
 		_, err = reader.Read()
