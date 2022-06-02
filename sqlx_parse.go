@@ -14,7 +14,7 @@ import (
 )
 
 type Corruption struct {
-	Id int64 `db:"id"`
+	//Id int64 `db:"id"`
 	YaId int64 `db:"ya_id"`
 	FirstName string `db:"first_name"`
 	FullName string `db:"full_name"`
@@ -37,53 +37,8 @@ type Corruption struct {
 	CreatedAt string `db:"created_at"`
 }
 
-const batchSize int64 = 100
-// file headers
-// id,first_name,full_name,email,phone_number,address_city,address_street,address_house,address_entrance,address_floor,address_office,address_comment,location_latitude,location_longitude,amount_charged,user_id,user_agent,created_at,address_doorcode
-
-func main() {
-	_t := time.Now() ////
-
-	db := dbConnect()
-	flist := flist.GetList(".")
-
-	var cid int64
-	err := db.Get(&cid, "SELECT MAX(id)+1 FROM corruption")
-	if err != nil {
-		cid = 1
-		fmt.Println("Get max Id error |", err)
-	}
-
-	// не ест этот формат запроса
-	// NamedExec(sql, slice) выдаёт pq: got XXXX parameters but the statement requires YY
-	// 	insertSql := `INSERT INTO corruption VALUES(
-	// :id,
-	// :ya_id,
-	// :first_name,
-	// :full_name,
-	// :email,
-	// :phone_number,
-	// :address_city,
-	// :address_street,
-	// :address_house,
-	// :address_entrance,
-	// :address_floor,
-	// :address_office,
-	// :address_comment,
-	// :address_doorcode,
-	// :location,
-	// :location_latitude,
-	// :location_longitude,
-	// :amount_charged,
-	// :user_id,
-	// :user_agent,
-	// :created_at
-	// )`
-	corr := []Corruption{}
-
-	insertSql := `INSERT INTO corruption
-(id,
-ya_id,
+const insertSql string = `INSERT INTO corruption
+(ya_id,
 first_name,
 full_name,
 email,
@@ -103,7 +58,6 @@ amount_charged,
 user_id,
 user_agent,
 created_at) VALUES(
-:id,
 :ya_id,
 :first_name,
 :full_name,
@@ -126,11 +80,37 @@ created_at) VALUES(
 :created_at
 )`
 
+const batchSize int64 = 100
+// file headers
+// id,first_name,full_name,email,phone_number,address_city,address_street,address_house,address_entrance,address_floor,address_office,address_comment,location_latitude,location_longitude,amount_charged,user_id,user_agent,created_at,address_doorcode
+
+func main() {
+	_t := time.Now() ////
+
+	db := dbConnect()
+	flist := flist.GetList(".")
+
+	var cid int64
+	err := db.Get(&cid, "SELECT COALESCE(MAX(id), 1) FROM corruption")
+	if err != nil {
+		cid = 1
+		fmt.Println("Get max Id error |", err)
+	}
+
 	for _, file := range flist {
-		fileOpen, err := os.Open(file)
+		go dataInsert(file, db, _t)
+	}
+
+	var input string
+	fmt.Scanln(&input)
+	fmt.Println(time.Now().Sub(_t)) ////
+}
+
+func dataInsert(file string, db *sqlx.DB, t time.Time) {
+	fileOpen, err := os.Open(file)
 		if err != nil {
 			fmt.Println("File open error |", file, err)
-			continue
+			return
 		}
 		defer fileOpen.Close()
 
@@ -142,35 +122,23 @@ created_at) VALUES(
 			fmt.Println("CSV reading error (header) |", file, err)
 		}
 
+		corr := []Corruption{}
+		var cid int64 = 1
+
 		for {
 			line, err := reader.Read()
 			if err != nil {
-				fmt.Println("CSV reading error (data string) |", file, err)
+				l := len(line)
+				if 0 == l {
+					fmt.Printf("File %s parsed and load\n", file)
+					break
+				}
+
+				fmt.Println("CSV reading error (data string) |", file, l)
 				break
 			}
 
-			corr = append(corr, Corruption{
-				cid,
-				strToInt(line[0]),
-				line[1],
-				line[2],
-				line[3],
-				strToInt(line[4]),
-				line[5],
-				line[6],
-				line[7],
-				line[8],
-				line[9],
-				line[10],
-				line[11],
-				line[18],
-				fmt.Sprintf("(%s, %s)", line[12], line[13]),
-				line[12],
-				line[13],
-				line[14],
-				strToInt(line[15]),
-				line[16],
-				line[17]})
+			corr = append(corr, makeCorruption(line))
 
 			cid++
 
@@ -194,9 +162,33 @@ created_at) VALUES(
 
 			corr = []Corruption{}			
 		}
-	}
 
-	fmt.Println(time.Now().Sub(_t)) ////
+		fmt.Println(time.Now().Sub(t))
+}
+
+func makeCorruption(line []string) Corruption {
+	return Corruption{
+		//cid,
+		strToInt(line[0]),
+		line[1],
+		line[2],
+		line[3],
+		strToInt(line[4]),
+		line[5],
+		line[6],
+		line[7],
+		line[8],
+		line[9],
+		line[10],
+		line[11],
+		line[18],
+		fmt.Sprintf("(%s, %s)", line[12], line[13]),
+		line[12],
+		line[13],
+		line[14],
+		strToInt(line[15]),
+		line[16],
+		line[17]}
 }
 
 func strToInt(str string) int64 {
