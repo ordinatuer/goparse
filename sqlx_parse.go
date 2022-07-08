@@ -1,42 +1,60 @@
 package main
 
 import (
-	"fmt"
-	"os"
 	"encoding/csv"
-	"time"
+	"fmt"
 	"io/ioutil"
+	"os"
 	"strings"
+	"time"
 
-	_ "github.com/lib/pq"
 	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
 )
 
 const batchSize int64 = 100
+
 // file headers
 // id,first_name,full_name,email,phone_number,address_city,address_street,address_house,address_entrance,address_floor,address_office,address_comment,location_latitude,location_longitude,amount_charged,user_id,user_agent,created_at,address_doorcode
 
 const csvRes string = ".csv"
+const csvDir string = "./csv/"
 
 func main() {
 	_t := time.Now() ////
 
 	db := dbConnect()
-	flist := getCsvList(".")
+	flist := getCsvList(csvDir)
+	yafilesList := []Yafile{}
 
 	for _, file := range flist {
-		go dataInsert(file, db, _t)
+		y := YafileMake(file, LOAD_NOT_PARSED)
+		yafilesList = append(yafilesList, y)
+
+		go dataInsert(y, db, _t)
+	}
+
+	// all files add with status LOAD_NOT_PARSED
+	_, err := db.NamedExec(YafileInsertSql, yafilesList)
+	if err != nil {
+		fmt.Println("FIles log error", err)
 	}
 
 	var input string
 	fmt.Scanln(&input)
-	fmt.Println(time.Now().Sub(_t)) ////
+	fmt.Println(time.Since(_t)) ////
 }
 
-func dataInsert(file string, db *sqlx.DB, t time.Time) {
-	fileOpen, err := os.Open(file)
+func dataInsert(file Yafile, db *sqlx.DB, t time.Time) {
+	fileOpen, err := os.Open(csvDir + file.Name)
 	if err != nil {
-		fmt.Println("File open error |", file, err)
+		file.SetFileError()
+		_, err := db.NamedExec(YafileUpdateStatusSql, file)
+		if err != nil {
+			fmt.Println("Files (error) log update error", err)
+		}
+
+		fmt.Println("File open error |", file.Name, err)
 		return
 	}
 	defer fileOpen.Close()
@@ -46,22 +64,35 @@ func dataInsert(file string, db *sqlx.DB, t time.Time) {
 	// first line - headers
 	_, err = reader.Read()
 	if err != nil {
-		fmt.Println("CSV reading error (header) |", file, err)
+		file.SetFileError()
+		_, err := db.NamedExec(YafileUpdateStatusSql, file)
+		if err != nil {
+			fmt.Println("Files (CSV reading error) log update error", err)
+		}
+
+		fmt.Println("CSV reading error (header) |", file.Name, err)
+		return
 	}
 
 	corr := []Corruption{}
 	var cid int64 = 1
 
+	file.SetInProgress()
+	_, err = db.NamedExec(YafileUpdateStatusSql, file)
+	if err != nil {
+		fmt.Println("Files (parsing in progress) log update error", err)
+	}
+
 	for {
 		line, err := reader.Read()
 		if err != nil {
 			l := len(line)
-			if 0 == l {
-				fmt.Printf("File %s parsed and load\n", file)
+			if l == 0 {
+				fmt.Printf("File %s parsed and load\n", file.Name)
 				break
 			}
 
-			fmt.Println("CSV reading error (data string) |", file, l)
+			fmt.Println("CSV reading error (data string) |", file.Name, l)
 			break
 		}
 
@@ -69,7 +100,7 @@ func dataInsert(file string, db *sqlx.DB, t time.Time) {
 
 		cid++
 
-		if cid % batchSize == 0 {
+		if cid%batchSize == 0 {
 			_, err := db.NamedExec(InsertSql, corr)
 			if err != nil {
 				fmt.Println("NamedExec error |", err, cid)
@@ -86,11 +117,15 @@ func dataInsert(file string, db *sqlx.DB, t time.Time) {
 		if err != nil {
 			fmt.Println("NamedExec error |", err, cid)
 		}
-
-		corr = []Corruption{}			
 	}
 
-	fmt.Println(time.Now().Sub(t))
+	file.SetParsed()
+	_, err = db.NamedExec(YafileUpdateStatusSql, file)
+	if err != nil {
+		fmt.Println("Files (mark file as parsed) log update error", err)
+	}
+
+	fmt.Println(time.Since(t))
 }
 
 func dbConnect() *sqlx.DB {
